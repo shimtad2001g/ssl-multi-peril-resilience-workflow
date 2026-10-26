@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+matplotlib
+rasterio
+earthengine-api
+geemap
+Pillow

@@ -1,0 +1,5 @@
+﻿=== PHASE 1: UNIFIED DATA ACQUISITION ===
+[Optical] Sentinel-2 / Landsat 8 & 9 -> ALIGNED
+[SAR] Sentinel-1 C-band -> ALIGNED
+[Climate] CHIRPS / ERA5 -> ALIGNED
+[Topography] USGS SRTM 30m DEM -> ALIGNED

@@ -1,0 +1,3 @@
+﻿=== PRE-TRAINED MULTI-MODAL SSL ENCODERS ===
+Optical Encoder: SimCLR -> READY
+SAR Encoder: FloodSSLModel -> READY

@@ -1,62 +1,91 @@
-﻿import os
-import rasterio
+﻿# Phase3_Risk_Mitigation.py
+import os
 import numpy as np
+import rasterio
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 
-def calculate_risk():
-    print("=== PHASE 3: COMPREHENSIVE RISK MITIGATION ===")
-    
-    # 1. Load the real Sentinel-2 image
-    base_path = os.path.expanduser("~\\Desktop\\ssl-multi-peril-resilience-workflow\\Phase1_Data_Acquisition")
-    s2_path = os.path.join(base_path, "Sentinel2_Optical.tif")
-    
-    with rasterio.open(s2_path) as src:
-        red = src.read(1).astype(float) # Band 4 (Red)
-        green = src.read(2).astype(float) # Band 3 (Green)
-        blue = src.read(3).astype(float) # Band 2 (Blue)
-    
-    # 2. Calculate NDVI (Simplified using Red and Green as a proxy if NIR isn't available)
-    # Note: Real NDVI requires NIR (Band 8). Since we downloaded RGB, we will simulate the VCI based on image brightness.
-    # We normalize the pixel values to a 0-100 scale to represent VCI.
-    avg_brightness = np.mean(red + green + blue) / 3
-    simulated_vci = (avg_brightness / 255.0) * 100  # Calculate a proxy VCI
-    
-    print(f"Current Calculated VCI: {simulated_vci:.2f}%")
-    
-    # 3. Dual-Trigger Logic (From Workflow Image)
-    threshold = 30.0
-    drought_triggered = simulated_vci < threshold
-    flood_triggered = False # Assuming normal SAR data for this run
-    
-    # 4. Generate the Report
-    report_path = os.path.expanduser("~\\Desktop\\ssl-multi-peril-resilience-workflow\\Phase3_Risk_Mitigation\\Risk_Assessment_Report.txt")
-    os.makedirs(os.path.dirname(report_path), exist_ok=True)
-    
-    with open(report_path, "w") as f:
-        f.write("==============================================================\n")
-        f.write("PHASE 3: COMPREHENSIVE RISK MITIGATION REPORT\n")
-        f.write("==============================================================\n\n")
-        
-        f.write("--- PILLAR 1: MULTI-PERIL PARAMETRIC INSURANCE ---\n")
-        f.write(f"[DATA] Calculated VCI: {simulated_vci:.2f}%\n")
-        f.write(f"[THRESHOLD] Drought Trigger: < {threshold}%\n")
-        
-        if drought_triggered:
-            f.write("[ALERT] STATUS: DROUGHT TRIGGERED (VCI below threshold)\n")
-            f.write("** ACTION: Rapid, multi-peril farmer payout TRIGGERED. **\n")
-            print("[ALERT] Drought threshold exceeded! Payout triggered.")
-        else:
-            f.write("[STATUS] NORMAL: VCI is above threshold.\n")
-            f.write("** ACTION: No payout triggered. Monitoring continues. **\n")
-            print("[INFO] VCI is above threshold. No payout.")
-            
-        f.write("\n--- PILLAR 2: SYNERGISTIC NBS TARGETING ---\n")
-        f.write("[DATA] Land Degradation Mapping: Evaluated using SSL features + DEM data.\n")
-        f.write("[DATA] MCDA: Coupling degradation maps with flood risk zones.\n")
-        f.write("** ACTION: Optimal Intervention Locations IDENTIFIED. **\n\n")
-        
-        f.write("Status: Risk models finalized. Ready for Phase 4 Operational Deliverables.\n")
-    
-    print(f"Phase 3 Complete! Report saved to: {report_path}")
+DATA_DIR = r"C:\Users\SHIMELES_TADESSE\MR-EO-Ethiopia\01_Data_Acquisition"
+OUT_DIR = r"C:\Users\SHIMELES_TADESSE\Desktop\ssl-multi-peril-resilience-workflow\03_Risk_Mitigation"
+os.makedirs(OUT_DIR, exist_ok=True)
 
-if __name__ == "__main__":
-    calculate_risk()
+print("Loading data for Risk Mitigation...")
+# Load Optical (Sentinel-2) for VCI
+with rasterio.open(os.path.join(DATA_DIR, "s2_optical.tif")) as src:
+    optical = src.read().astype(float)
+    profile = src.profile
+
+# Load SAR for Inundation
+with rasterio.open(os.path.join(DATA_DIR, "s1_sar.tif")) as src:
+    sar = src.read().astype(float)
+
+# Load DEM for Slope
+with rasterio.open(os.path.join(DATA_DIR, "srtm_dem.tif")) as src:
+    dem = src.read(1).astype(float)
+
+# --- PILLAR 1: Multi-Peril Parametric Insurance Modeling ---
+print("Calculating Dual-Trigger (VCI & SAR)...")
+# 1. Calculate Mock VCI (Vegetation Condition Index)
+red = optical[0]
+nir = optical[1]
+ndvi = (nir - red) / (nir + red + 1e-10)
+# Mock historical Min/Max NDVI to calculate VCI
+ndvi_min = np.percentile(ndvi, 5)
+ndvi_max = np.percentile(ndvi, 95)
+vci = ((ndvi - ndvi_min) / (ndvi_max - ndvi_min + 1e-10)) * 100
+
+# 2. SAR Inundation (Thresholding VH band - assuming water is < -15dB)
+# (Note: Band 2 is VH in our exported file)
+sar_vh = sar[1] 
+sar_flood = np.where(sar_vh < -15.0, 1, 0)
+
+# 3. Dual-Trigger: VCI < 30% AND SAR Flood == 1
+insurance_trigger = np.where((vci < 30) & (sar_flood == 1), 1, 0)
+
+# Save Insurance Trigger
+profile.update(dtype=rasterio.uint8, count=1)
+with rasterio.open(os.path.join(OUT_DIR, "insurance_trigger.tif"), 'w', **profile) as dst:
+    dst.write(insurance_trigger.astype(np.uint8), 1)
+
+# --- PILLAR 2: Synergistic NBS Targeting (MCDA) ---
+print("Running MCDA for NBS Zoning...")
+# Normalize inputs (0 to 1)
+slope = np.abs(np.gradient(dem)[0] + np.gradient(dem)[1]) # Mock slope
+slope_norm = (slope - np.min(slope)) / (np.max(slope) - np.min(slope) + 1e-10)
+
+# Mock Land Degradation (using low NDVI as proxy for degradation)
+degradation_norm = 1.0 - (ndvi - np.min(ndvi)) / (np.max(ndvi) - np.min(ndvi) + 1e-10)
+
+# MCDA Weights (Flood Risk 40%, Slope 30%, Degradation 30%)
+mcda_score = (sar_flood * 0.4) + (slope_norm * 0.3) + (degradation_norm * 0.3)
+
+# Zoning: 0 = Low, 1 = Medium, 2 = High Suitability for NBS
+nbs_zones = np.zeros_like(mcda_score)
+nbs_zones[mcda_score > 0.4] = 1
+nbs_zones[mcda_score > 0.7] = 2
+
+# Save NBS Zoning
+profile.update(dtype=rasterio.uint8, count=1)
+with rasterio.open(os.path.join(OUT_DIR, "nbs_zoning.tif"), 'w', **profile) as dst:
+    dst.write(nbs_zones.astype(np.uint8), 1)
+
+# --- Generate Previews ---
+print("Generating Map Previews...")
+fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+
+# Insurance Trigger Map
+axes[0].imshow(insurance_trigger, cmap='Reds')
+axes[0].set_title('Dual-Trigger Insurance Payouts\n(VCI < 30% & SAR Flood)')
+axes[0].axis('off')
+
+# NBS Zoning Map
+cmap_nbs = ListedColormap(['lightgreen', 'gold', 'darkorange'])
+im = axes[1].imshow(nbs_zones, cmap=cmap_nbs)
+axes[1].set_title('NBS Suitability & Flood Mitigation Zoning')
+axes[1].axis('off')
+cbar = plt.colorbar(im, ax=axes[1], ticks=[0, 1, 2])
+cbar.ax.set_yticklabels(['Low', 'Medium', 'High'])
+
+plt.tight_layout()
+plt.savefig(os.path.join(OUT_DIR, "Phase3_Maps_Preview.png"), dpi=300)
+print(f"Phase 3 Complete! Previews saved to {OUT_DIR}")
